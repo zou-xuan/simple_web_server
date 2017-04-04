@@ -1,6 +1,28 @@
+'''Refer http://aosabook.org/en/500L/a-simple-web-server.html'''
 import BaseHTTPServer
 import os
-import sys
+
+
+class base_case(object):
+    '''Parent for case handlers.'''
+
+    def handle_file(self, handler, full_path):
+        try:
+            with open(full_path, 'rb') as reader:
+                content = reader.read()
+            handler.send_content(content)
+        except IOError as msg:
+            msg = "'{0}' cannot be read: {1}".format(full_path, msg)
+            handler.handle_error(msg)
+
+    def index_path(self, handler):
+        return os.path.join(handler.full_path, 'index.html')
+
+    def test(self, handler):
+        assert False, 'Not implemented.'
+
+    def act(self, handler):
+        assert False, 'Not implemented.'
 
 
 class case_no_file(object):
@@ -13,14 +35,14 @@ class case_no_file(object):
         raise ServerException("'{0}' not found".format(handler.path))
 
 
-class case_existing_file(object):
+class case_existing_file(base_case):
     '''File exists.'''
 
     def test(self, handler):
         return os.path.isfile(handler.full_path)
 
     def act(self, handler):
-        handler.handle_file(handler.full_path)
+        self.handle_file(handler, handler.full_path)
 
 
 class case_always_fail(object):
@@ -61,6 +83,17 @@ class case_directory_no_index_file(object):
         handler.list_dir(handler.full_path)
 
 
+class case_cgi_file(object):
+    '''Something runnable.'''
+
+    def test(self, handler):
+        return os.path.isfile(handler.full_path) and \
+               handler.full_path.endswith('.py')
+
+    def act(self, handler):
+        handler.run_cgi(handler.full_path)
+
+
 class RequestHandler(BaseHTTPServer.BaseHTTPRequestHandler):
     Page = '''\
     <html>
@@ -96,7 +129,7 @@ class RequestHandler(BaseHTTPServer.BaseHTTPRequestHandler):
         </html>
         '''
 
-    Cases = [case_no_file(), case_existing_file(), case_directory_index_file(),
+    Cases = [case_no_file(), case_cgi_file(), case_existing_file(), case_directory_index_file(),
              case_directory_no_index_file(), case_always_fail()]
 
     def do_GET(self):
@@ -125,14 +158,14 @@ class RequestHandler(BaseHTTPServer.BaseHTTPRequestHandler):
         except Exception as msg:
             self.handle_error(msg)
 
-    def handle_file(self, full_path):
-        try:
-            with open(full_path, 'rb') as reader:
-                content = reader.read()
-            self.send_content(content)
-        except IOError as msg:
-            msg = "'{0}' cannot be read: {1}".format(self.path, msg)
-            self.handle_error(msg)
+    # def handle_file(self, full_path):
+    #     try:
+    #         with open(full_path, 'rb') as reader:
+    #             content = reader.read()
+    #         self.send_content(content)
+    #     except IOError as msg:
+    #         msg = "'{0}' cannot be read: {1}".format(self.path, msg)
+    #         self.handle_error(msg)
 
     def handle_error(self, msg):
         content = self.Error_Page.format(path=self.path, msg=msg)
@@ -172,6 +205,14 @@ class RequestHandler(BaseHTTPServer.BaseHTTPRequestHandler):
         except Exception as msg:
             msg = "'{0}' cannot be listed: {1}".format(self.path, msg)
             self.handle_error(msg)
+
+    def run_cgi(self, full_path):
+        cmd = "python " + full_path
+        child_stdin, child_stdout = os.popen2(cmd)
+        child_stdin.close()
+        data = child_stdout.read()
+        child_stdout.close()
+        self.send_content(data)
 
 
 if __name__ == '__main__':
